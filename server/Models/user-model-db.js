@@ -1,0 +1,8 @@
+export const SIGNUP_FETCH_QUERY= "select * from users where username = ? and email = ?"
+export const SIGNUP_INSERT_QUERY="insert into users (username, email, password) values (?,?,?)"
+export const LOGIN_FETCH_QUERY="select * from users where email = ?"
+export const VERIFY_OTP_USER_EXISTS_QUERY="select * from users where email = ?"
+export const UPDATE_USERS_OTP_AND_OTP_EXPIRATION="update users set otp = ? , otp_expiration = ? where email = ?"
+export const VERIFY_OTP_OF_USER ="select email, otp_expiration from users where otp = ?"
+export const CHECK_USER_FOR_RESET_PASSWORD="select * from users where email = ?"
+export const UPDATE_USER_PASSWORD="update users set password = ?, otp = null, otp_expiration = null where email = ?"

@@ -1,0 +1,12 @@
+/secrets/
+*.env
+*.env.*
+docker-compose.yml
+
+infrastructure/.terraform/
+infrastructure/.terraform.lock.hcl
+infrastructure/*.tfstate
+infrastructure/*.tfstate.*
+infrastructure/crash.log
+infrastructure/*.tfvars
+infrastructure/*.tfvars.json

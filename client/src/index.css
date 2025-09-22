@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,436;1,436&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Apply custom scrollbar styling to the whole website */
+body, * {
+    font-family: "Montserrat", sans-serif;
+    scrollbar-width: thin; /* For Firefox */
+    scrollbar-color: rgb(3, 3, 32) rgb(27, 27, 138); /* For Firefox */
+}
+
+/* Hide the scrollbar for all browsers */
+body, * {
+    overflow: hidden; /* Hides the scrollbar */
+}
+
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+    display: none; /* Hide scrollbar for Chrome, Safari, and Opera */
+}
+
+/* General background style for the entire website */
+body {
+    background: url(https://demos.creative-tim.com/vision-ui-dashboard-react/static/media/body-background.9e7d96f6.png) 0% 0% / cover;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
