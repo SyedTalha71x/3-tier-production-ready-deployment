@@ -1,0 +1,121 @@
+name: Deploy MERN Application
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: mern-app
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: |
+          frontend/package-lock.json
+          backend/package-lock.json
+    
+    - name: Test Backend
+      run: |
+        cd server
+        npm ci
+        npm test
+    
+    - name: Test Frontend
+      run: |
+        cd client
+        npm ci
+        npm test -- --watchAll=false
+    
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    
+    - name: Build Backend Docker image
+      run: |
+        docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest ./backend
+    
+    - name: Push Backend Docker image
+      run: |
+        docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest
+    
+    - name: Build Frontend Docker image
+      run: |
+        docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest ./frontend
+    
+    - name: Push Frontend Docker image
+      run: |
+        docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
+    
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ec2-user
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          # Pull latest images
+          docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest
+          docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
+          
+          # Stop and remove old containers
+          cd /opt/app
+          docker-compose down
+          
+          # Update docker-compose with new images
+          cat << EOF > docker-compose.prod.yml
+          version: '3.8'
+          services:
+            frontend:
+              image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
+              ports:
+                - "80:80"
+              depends_on:
+                - backend
+            
+            backend:
+              image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest
+              ports:
+                - "5000:5000"
+              environment:
+                - DB_HOST=${{ secrets.DB_HOST }}
+                - DB_USER=${{ secrets.DB_USER }}
+                - DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+                - DB_NAME=mernapp
+          EOF
+          
+          # Start new containers
+          docker-compose -f docker-compose.prod.yml up -d
+          
+          # Run database migrations
+          docker exec \$(docker ps -q -f name=backend) npm run migrate
