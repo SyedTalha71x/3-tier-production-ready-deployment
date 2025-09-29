@@ -1,4 +1,4 @@
-name: Deploy 3 Tier Microservice app 
+name: Deploy 3 Tier Microservice app
 
 on:
   push:
@@ -13,86 +13,97 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Echo Test Cleared
-      run: echo "Tests cleared ✅"
-    
+      - uses: actions/checkout@v4
+      - name: Echo Test Cleared
+        run: echo "Tests cleared ✅"
+
   build-and-deploy:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-    
-    - name: Login to Amazon ECR..
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
-    
-    - name: Build Backend Docker image
-      run: |
-        docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest ./server
-    
-    - name: Push Backend Docker image
-      run: |
-        docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest
-    
-    - name: Build Frontend Docker image
-      run: |
-        docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest ./client
-    
-    - name: Push Frontend Docker image
-      run: |
-        docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
-    
-    - name: Deploy to EC2
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
-        key: ${{ secrets.EC2_SSH_KEY }}
-        port: 22
-        script: |
-          # Pull latest images
-          docker pull 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
-          docker pull 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-          # Stop and remove old containers
-          cd /opt/app
-          docker-compose down
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-          # Update docker-compose with new images
-          cat << 'EOF' > docker-compose.prod.yml
-          version: '3.8'
-          services:
-            frontend:
-              image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
-              ports:
-                - "80:80"
-              depends_on:
-                - backend
-            
-            backend:
-              image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
-              ports:
-                - "5000:5000"
-              environment:
-                - DB_HOST=***
-                - DB_USER=***
-                - DB_PASSWORD=***
-                - DB_NAME=talent_mapping
-          EOF
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-          # Start new containers
-          docker-compose -f docker-compose.prod.yml up -d
+      - name: Build Backend Docker image
+        run: |
+          docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest ./server
+
+      - name: Push Backend Docker image
+        run: |
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest
+
+      - name: Build Frontend Docker image
+        run: |
+          docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest ./client
+
+      - name: Push Frontend Docker image
+        run: |
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            # Ensure AWS CLI and Docker Compose are available
+            if ! command -v aws &> /dev/null; then
+              sudo apt-get update -y
+              sudo apt-get install -y awscli docker-compose-plugin
+            fi
+
+            # Ensure /opt/app exists and is writable
+            sudo mkdir -p /opt/app
+            sudo chown ubuntu:ubuntu /opt/app
+            cd /opt/app
+
+            # Login to ECR from EC2
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 121775527711.dkr.ecr.us-east-1.amazonaws.com
+
+            # Pull latest images
+            docker pull 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
+            docker pull 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
+
+            # Stop and remove old containers
+            docker-compose down || true
+
+            # Update docker-compose with new images
+            cat << EOF > docker-compose.prod.yml
+            version: '3.8'
+            services:
+              frontend:
+                image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
+                ports:
+                  - "80:80"
+                depends_on:
+                  - backend
+              
+              backend:
+                image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
+                ports:
+                  - "5000:5000"
+                environment:
+                  - DB_HOST=${{ secrets.DB_HOST }}
+                  - DB_USER=${{ secrets.DB_USER }}
+                  - DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+                  - DB_NAME=talent_mapping
+            EOF
+
+            # Start new containers
+            docker-compose -f docker-compose.prod.yml up -d
