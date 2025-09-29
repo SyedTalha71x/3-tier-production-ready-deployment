@@ -66,7 +66,6 @@ EOF
 rm -f /etc/nginx/sites-enabled/default
 ln -s /etc/nginx/sites-available/nextgen /etc/nginx/sites-enabled/
 
-# Include sites-enabled in nginx.conf if not already
 if ! grep -q "sites-enabled" /etc/nginx/nginx.conf; then
     sed -i '/http {/a \    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf
 fi
