@@ -60,41 +60,39 @@ jobs:
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.EC2_HOST }}
-        username: ec2-user
+        username: ubuntu
         key: ${{ secrets.EC2_SSH_KEY }}
+        port: 22
         script: |
           # Pull latest images
-          docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest
-          docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
-          
+          docker pull 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
+          docker pull 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
+
           # Stop and remove old containers
           cd /opt/app
           docker-compose down
-          
+
           # Update docker-compose with new images
-          cat << EOF > docker-compose.prod.yml
+          cat << 'EOF' > docker-compose.prod.yml
           version: '3.8'
           services:
             frontend:
-              image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
+              image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
               ports:
                 - "80:80"
               depends_on:
                 - backend
             
             backend:
-              image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest
+              image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
               ports:
                 - "5000:5000"
               environment:
-                - DB_HOST=${{ secrets.DB_HOST }}
-                - DB_USER=${{ secrets.DB_USER }}
-                - DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+                - DB_HOST=***
+                - DB_USER=***
+                - DB_PASSWORD=***
                 - DB_NAME=talent_mapping
           EOF
-          
+
           # Start new containers
           docker-compose -f docker-compose.prod.yml up -d
-          
-          # Run database migrations
-          # docker exec \$(docker ps -q -f name=backend) npm run migrate
