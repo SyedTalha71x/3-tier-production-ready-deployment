@@ -115,7 +115,7 @@ jobs:
               backend:
                 image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
                 ports:
-                  - "5000:5000"
+                  - "3000:3000"
                 environment:
                   - DB_HOST=${{ secrets.DB_HOST }}
                   - DB_USER=${{ secrets.DB_USER }}
