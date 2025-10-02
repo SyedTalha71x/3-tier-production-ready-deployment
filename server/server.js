@@ -42,6 +42,14 @@ app.use('/api/test-route', (req, res) => {
    res.send({ message: 'Server is running' });
 });
 
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    service: 'backend'
+  });
+});
+
 app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(500).send({

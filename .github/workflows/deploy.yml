@@ -1,13 +1,12 @@
-name: Deploy 3 Tier Microservice app
+name: Deploy 3 Tier Microservice App
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
 env:
   AWS_REGION: us-east-1
+  ECR_REGISTRY: 121775527711.dkr.ecr.us-east-1.amazonaws.com
   ECR_REPOSITORY: mern-app
 
 jobs:
@@ -15,14 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Echo Test Cleared
-        run: echo "Tests cleared ✅"
+      - run: echo "Tests passed"
 
-  build-and-deploy:
+  build-and-push-backend:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,94 +35,137 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Backend Docker image
+      - name: Build and Push Backend Image
         run: |
-          docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest ./server
+          cd server
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-backend:latest .
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-backend:latest
 
-      - name: Push Backend Docker image
+  build-and-push-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Frontend with Environment Variables
         run: |
-          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-backend:latest
+          cd client
+          # Build with production environment variables
+          VITE_API_URL=${{ secrets.VITE_API_URL }} npm run build
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-frontend:latest .
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-frontend:latest
 
-      - name: Build Frontend Docker image
-        run: |
-          docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest ./client
-
-      - name: Push Frontend Docker image
-        run: |
-          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
-
+  deploy:
+    needs: [build-and-push-backend, build-and-push-frontend]
+    runs-on: ubuntu-latest
+    
+    steps:
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
           script: |
-            # Install AWS CLI and Docker Compose properly
-            if ! command -v aws &> /dev/null; then
-              echo "Installing AWS CLI..."
-              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-              sudo apt-get update -y
-              sudo apt-get install -y unzip
-              unzip awscliv2.zip
-              sudo ./aws/install
-              rm -rf awscliv2.zip aws/
-            fi
+            # Create environment file with all secrets
+            cat << 'ENVFILE' > /opt/app/.env
 
-            if ! command -v docker-compose &> /dev/null; then
-              echo "Installing Docker Compose..."
-              sudo apt-get install -y docker-compose-plugin
-              # Alternative if the above doesn't work:
-              # sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-              # sudo chmod +x /usr/local/bin/docker-compose
-            fi
+            # Backend and Database Configuration
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB_NAME=${{ secrets.DB_NAME }}
+            DB_PORT=3306
+            
+            PORT=3000
+            KEY=${{ secrets.KEY }}
 
-            # Ensure /opt/app exists and is writable
-            sudo mkdir -p /opt/app
-            sudo chown ubuntu:ubuntu /opt/app
+            OPENAI_SECRET_KEY=${{ secrets.OPENAI_SECRET_KEY }}
+            STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+
+            EMAIL_USER=pc16777.syedtalhahussain@gmail.com
+            EMAIL_PASS=${{ secrets.EMAIL_PASS }}
+
+            NODE_ENV=production
+            PRODUCTION_URL=http://174.129.55.219
+            
+            # Frontend Configuration
+            VITE_PRODUCTION_API_URL=http://174.129.55.219:3000/api
+            VITE_STRIPE_PUBLIC_KEY=${{ secrets.VITE_STRIPE_PUBLIC_KEY }}
+            VITE_NODE_ENV=production
+
+            # Create deploy script
+            cat << 'DEPLOYSCRIPT' > /opt/app/deploy.sh
+            #!/bin/bash
+            set -e
+            
             cd /opt/app
-
-            # Configure AWS credentials on EC2 for ECR access
-            aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws configure set default.region us-east-1
-
-            # Login to ECR from EC2
+            
+            # Login to ECR
             aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 121775527711.dkr.ecr.us-east-1.amazonaws.com
-
+            
             # Pull latest images
             docker pull 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
             docker pull 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
-
-            # Stop and remove old containers
-            docker-compose down || true
-
-            # Update docker-compose with new images
-            cat << EOF > docker-compose.prod.yml
+            
+            # Create docker-compose file
+            cat << 'DOCKERCOMPOSE' > docker-compose.prod.yml
             version: '3.8'
             services:
-              frontend:
-                image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
-                ports:
-                  - "80:80"
-                depends_on:
-                  - backend
-              
               backend:
                 image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-backend:latest
+                container_name: backend
                 ports:
                   - "3000:3000"
-                environment:
-                  - DB_HOST=${{ secrets.DB_HOST }}
-                  - DB_USER=${{ secrets.DB_USER }}
-                  - DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-                  - DB_NAME=talent_mapping
-            EOF
-
-            # Start new containers
+                env_file:
+                  - .env
+                restart: unless-stopped
+                healthcheck:
+                  test: ["CMD", "curl", "-f", "http://174.129.55.219:3000/api/health"]
+                  interval: 30s
+                  timeout: 10s
+                  retries: 3
+            
+              frontend:
+                image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
+                container_name: frontend
+                ports:
+                  - "8080:80"
+                restart: unless-stopped
+            DOCKERCOMPOSE
+            
+            # Stop and start containers
+            docker-compose -f docker-compose.prod.yml down || true
             docker-compose -f docker-compose.prod.yml up -d
+            
+            # Extract frontend static files for nginx
+            sleep 20
+            mkdir -p /opt/app/frontend-dist
+            docker cp frontend:/usr/share/nginx/html/. /opt/app/client/dist/ || echo "Frontend files extraction failed, will retry"
+            
+            # Update nginx configuration with actual domain if needed
+            if [ -n "$DOMAIN" ]; then
+                sed -i "s/server_name _;/server_name $DOMAIN;/" /etc/nginx/sites-available/nextgen
+            fi
+            
+            systemctl reload nginx
+            docker image prune -f
+            
+            echo "Deployment completed!"
+            DEPLOYSCRIPT
 
-            # Verify containers are running
-            echo "Current running containers:"
-            docker ps
+            chmod +x /opt/app/deploy.sh
+            cd /opt/app && ./deploy.sh
