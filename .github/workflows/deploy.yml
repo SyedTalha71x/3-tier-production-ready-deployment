@@ -49,6 +49,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd client
+          npm install
+
+      - name: Build Frontend with Environment Variables
+        run: |
+          cd client
+          # Build with production environment variables
+          VITE_PRODUCTION_API_URL=http://174.129.55.219:3000/api npm run build
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -60,11 +78,9 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Frontend with Environment Variables
+      - name: Build and Push Frontend Docker Image
         run: |
           cd client
-          # Build with production environment variables
-          VITE_API_URL=${{ secrets.VITE_API_URL }} npm run build
           docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-frontend:latest .
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-frontend:latest
 
@@ -82,7 +98,6 @@ jobs:
           script: |
             # Create environment file with all secrets
             cat << 'ENVFILE' > /opt/app/.env
-
             # Backend and Database Configuration
             DB_HOST=${{ secrets.DB_HOST }}
             DB_USER=${{ secrets.DB_USER }}
@@ -106,6 +121,7 @@ jobs:
             VITE_PRODUCTION_API_URL=http://174.129.55.219:3000/api
             VITE_STRIPE_PUBLIC_KEY=${{ secrets.VITE_STRIPE_PUBLIC_KEY }}
             VITE_NODE_ENV=production
+            ENVFILE
 
             # Create deploy script
             cat << 'DEPLOYSCRIPT' > /opt/app/deploy.sh
@@ -134,7 +150,7 @@ jobs:
                   - .env
                 restart: unless-stopped
                 healthcheck:
-                  test: ["CMD", "curl", "-f", "http://174.129.55.219:3000/api/health"]
+                  test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
                   interval: 30s
                   timeout: 10s
                   retries: 3
@@ -151,17 +167,7 @@ jobs:
             docker-compose -f docker-compose.prod.yml down || true
             docker-compose -f docker-compose.prod.yml up -d
             
-            # Extract frontend static files for nginx
-            sleep 20
-            mkdir -p /opt/app/frontend-dist
-            docker cp frontend:/usr/share/nginx/html/. /opt/app/client/dist/ || echo "Frontend files extraction failed, will retry"
-            
-            # Update nginx configuration with actual domain if needed
-            if [ -n "$DOMAIN" ]; then
-                sed -i "s/server_name _;/server_name $DOMAIN;/" /etc/nginx/sites-available/nextgen
-            fi
-            
-            systemctl reload nginx
+            # Clean up unused images
             docker image prune -f
             
             echo "Deployment completed!"
