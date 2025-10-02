@@ -123,7 +123,7 @@ jobs:
             VITE_NODE_ENV=production
             ENVFILE
 
-            # Create deploy script
+            # Create deploy script..
             cat << 'DEPLOYSCRIPT' > /opt/app/deploy.sh
             #!/bin/bash
             set -e
