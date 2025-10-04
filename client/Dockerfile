@@ -7,8 +7,15 @@ COPY package*.json ./
 RUN npm install --frozen-lockfile
 COPY . .
 
-RUN npm run build
-
+ARG VITE_API_BASE_URL
+ARG VITE_STRIPE_PUBLIC_KEY
+ARG VITE_PRODUCTION_API_URL
+ARG VITE_NODE_ENV
+RUN VITE_API_BASE_URL=$VITE_API_BASE_URL \
+    VITE_STRIPE_PUBLIC_KEY=$VITE_STRIPE_PUBLIC_KEY \
+    VITE_PRODUCTION_API_URL=$VITE_PRODUCTION_API_URL \
+    VITE_NODE_ENV=$VITE_NODE_ENV \
+    npm run build
 
 # --- Production Stage ---
 FROM nginx:alpine

@@ -61,12 +61,6 @@ jobs:
           cd client
           npm install
 
-      - name: Build Frontend with Environment Variables
-        run: |
-          cd client
-          # Build with production environment variables
-          VITE_PRODUCTION_API_URL=http://174.129.55.219:3000/api npm run build
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -81,7 +75,12 @@ jobs:
       - name: Build and Push Frontend Docker Image
         run: |
           cd client
-          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-frontend:latest .
+          docker build \
+            --build-arg VITE_API_BASE_URL=http://localhost:3000/api \
+            --build-arg VITE_PRODUCTION_API_URL=http://54.224.26.21:3000/api \
+            --build-arg VITE_STRIPE_PUBLIC_KEY=${{ secrets.VITE_STRIPE_PUBLIC_KEY }} \
+            --build-arg VITE_NODE_ENV=production \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-frontend:latest .
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}-frontend:latest
 
   deploy:
@@ -115,15 +114,10 @@ jobs:
             EMAIL_PASS=${{ secrets.EMAIL_PASS }}
 
             NODE_ENV=production
-            PRODUCTION_URL=http://174.129.55.219
-            
-            # Frontend Configuration
-            VITE_PRODUCTION_API_URL=http://174.129.55.219:3000/api
-            VITE_STRIPE_PUBLIC_KEY=${{ secrets.VITE_STRIPE_PUBLIC_KEY }}
-            VITE_NODE_ENV=production
+            PRODUCTION_URL=http://54.224.26.21
             ENVFILE
 
-            # Create deploy script..
+            # Create deploy script
             cat << 'DEPLOYSCRIPT' > /opt/app/deploy.sh
             #!/bin/bash
             set -e
@@ -154,7 +148,7 @@ jobs:
                   interval: 30s
                   timeout: 10s
                   retries: 3
-            
+
               frontend:
                 image: 121775527711.dkr.ecr.us-east-1.amazonaws.com/mern-app-frontend:latest
                 container_name: frontend

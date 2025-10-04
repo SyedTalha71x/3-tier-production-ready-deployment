@@ -28,16 +28,11 @@ chown -R ubuntu:ubuntu /opt/app
 cat << 'EOF' > /etc/nginx/sites-available/nextgen
 server {
     listen 80;
-    server_name _;
+    server_name 174.129.55.219;
     
+    # Frontend - Docker container ki taraf proxy
     location / {
-        root /opt/app/client/dist;
-        index index.html;
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -48,9 +43,31 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
+    # Backend API - Docker container ki taraf proxy
+    location /api {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        
+        # CORS headers for API
+        add_header 'Access-Control-Allow-Origin' '*' always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT, DELETE' always;
+        add_header 'Access-Control-Allow-Headers' 'X-Requested-With,Accept,Content-Type,Origin' always;
+    }
+
+    # Health check
     location /health {
-        return 200 "healthy\n";
-        add_header Content-Type text/plain;
+        proxy_pass http://127.0.0.1:3000/api/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 EOF
